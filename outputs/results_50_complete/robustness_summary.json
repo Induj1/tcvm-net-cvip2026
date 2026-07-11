@@ -1,0 +1,174 @@
+{
+  "rows": [
+    {
+      "attack": "clean",
+      "method": "YOLOv8",
+      "attack_success_rate": 0.0,
+      "robust_accuracy": 1.0,
+      "map50": 0.6279840902988224,
+      "map50_95": 0.4150811105091717,
+      "precision": 0.6099211164023429,
+      "recall": 0.6165749741081555
+    },
+    {
+      "attack": "fgsm",
+      "method": "YOLOv8",
+      "attack_success_rate": 0.012448132780082987,
+      "robust_accuracy": 0.9875518672199171,
+      "map50": 0.6816373392309313,
+      "map50_95": 0.47613331860153957,
+      "precision": 0.5980928085612592,
+      "recall": 0.662594696969697
+    },
+    {
+      "attack": "fgsm",
+      "method": "Image-only defense",
+      "attack_success_rate": 0.012448132780082987,
+      "robust_accuracy": 0.9875518672199171,
+      "map50": 0.6884232427339865,
+      "map50_95": 0.4783458668373727,
+      "precision": 0.6266994064442624,
+      "recall": 0.7403409090909091
+    },
+    {
+      "attack": "pgd",
+      "method": "YOLOv8",
+      "attack_success_rate": 0.016597510373443983,
+      "robust_accuracy": 0.983402489626556,
+      "map50": 0.6874463869427033,
+      "map50_95": 0.47876005964966645,
+      "precision": 0.6145580825012623,
+      "recall": 0.6924558080808082
+    },
+    {
+      "attack": "pgd",
+      "method": "Image-only defense",
+      "attack_success_rate": 0.016597510373443983,
+      "robust_accuracy": 0.983402489626556,
+      "map50": 0.6855375616207566,
+      "map50_95": 0.4750293582943968,
+      "precision": 0.6487312780872884,
+      "recall": 0.7087436868686868
+    },
+    {
+      "attack": "patch",
+      "method": "YOLOv8",
+      "attack_success_rate": 0.3900414937759336,
+      "robust_accuracy": 0.6099585062240664,
+      "map50": 0.40650505705218426,
+      "map50_95": 0.21930120876851303,
+      "precision": 0.4216433773172376,
+      "recall": 0.3816287878787879
+    },
+    {
+      "attack": "patch",
+      "method": "Image-only defense",
+      "attack_success_rate": 0.3900414937759336,
+      "robust_accuracy": 0.6099585062240664,
+      "map50": 0.4398154488380331,
+      "map50_95": 0.24472598831673548,
+      "precision": 0.4857152939604779,
+      "recall": 0.40309838335429876
+    },
+    {
+      "attack": "sticker",
+      "method": "YOLOv8",
+      "attack_success_rate": 0.26141078838174275,
+      "robust_accuracy": 0.7385892116182573,
+      "map50": 0.5052141422847785,
+      "map50_95": 0.2945232779858722,
+      "precision": 0.8834677367438554,
+      "recall": 0.439238700187842
+    },
+    {
+      "attack": "sticker",
+      "method": "Image-only defense",
+      "attack_success_rate": 0.26141078838174275,
+      "robust_accuracy": 0.7385892116182573,
+      "map50": 0.5661038572782847,
+      "map50_95": 0.3409561788261552,
+      "precision": 0.5517128545844726,
+      "recall": 0.5116461816376482
+    },
+    {
+      "attack": "reflective",
+      "method": "YOLOv8",
+      "attack_success_rate": 0.8630705394190872,
+      "robust_accuracy": 0.13692946058091282,
+      "map50": 0.15159726238961485,
+      "map50_95": 0.07598361395105016,
+      "precision": 0.22201426201389754,
+      "recall": 0.19460227272727273
+    },
+    {
+      "attack": "reflective",
+      "method": "Image-only defense",
+      "attack_success_rate": 0.8630705394190872,
+      "robust_accuracy": 0.13692946058091282,
+      "map50": 0.0997981143570739,
+      "map50_95": 0.04855414266207291,
+      "precision": 0.14611199224806282,
+      "recall": 0.12563131313131312
+    },
+    {
+      "attack": "motion_blur",
+      "method": "YOLOv8",
+      "attack_success_rate": 0.6721991701244814,
+      "robust_accuracy": 0.3278008298755186,
+      "map50": 0.2459631878666614,
+      "map50_95": 0.10607222246514497,
+      "precision": 0.7955882019749717,
+      "recall": 0.18434343434343434
+    },
+    {
+      "attack": "motion_blur",
+      "method": "Image-only defense",
+      "attack_success_rate": 0.6721991701244814,
+      "robust_accuracy": 0.3278008298755186,
+      "map50": 0.2825737086557517,
+      "map50_95": 0.12508226741731562,
+      "precision": 0.7911262350233624,
+      "recall": 0.21582125838531854
+    },
+    {
+      "attack": "occlusion",
+      "method": "YOLOv8",
+      "attack_success_rate": 0.8008298755186722,
+      "robust_accuracy": 0.19917012448132776,
+      "map50": 0.216333966249225,
+      "map50_95": 0.12465715903139725,
+      "precision": 0.26479711530133165,
+      "recall": 0.23773088759789385
+    },
+    {
+      "attack": "occlusion",
+      "method": "Image-only defense",
+      "attack_success_rate": 0.8008298755186722,
+      "robust_accuracy": 0.19917012448132776,
+      "map50": 0.32096678594586,
+      "map50_95": 0.1943039869079605,
+      "precision": 0.35298634692766234,
+      "recall": 0.32661047891624145
+    },
+    {
+      "attack": "low_light",
+      "method": "YOLOv8",
+      "attack_success_rate": 0.029045643153526972,
+      "robust_accuracy": 0.970954356846473,
+      "map50": 0.6512008795198106,
+      "map50_95": 0.4447151437759968,
+      "precision": 0.6237108326489301,
+      "recall": 0.5898042929292929
+    },
+    {
+      "attack": "low_light",
+      "method": "Image-only defense",
+      "attack_success_rate": 0.029045643153526972,
+      "robust_accuracy": 0.970954356846473,
+      "map50": 0.6455893056012422,
+      "map50_95": 0.441034434631253,
+      "precision": 0.9661973842404837,
+      "recall": 0.5417008831511517
+    }
+  ]
+}
