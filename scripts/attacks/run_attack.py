@@ -18,6 +18,7 @@ from advtraffic.attacks.toolbox_adapters import foolbox_linf_pgd, make_art_class
 from advtraffic.detection import Detection, YOLOv8Engine
 from advtraffic.utils.geometry import box_iou, yolo_to_xyxy
 from advtraffic.utils.io import IMAGE_EXTENSIONS, ensure_dir, iter_files, read_image, write_json
+from advtraffic.utils.seed import set_seed
 
 
 def parse_args() -> argparse.Namespace:
@@ -39,6 +40,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--gradient-backend", choices=["native", "art", "foolbox"], default="native")
     parser.add_argument("--target-classes", type=int, nargs="*", default=[0, 1, 2])
     parser.add_argument("--max-images", type=int, default=None)
+    parser.add_argument("--seed", type=int, default=2026)
     parser.add_argument("--save-visualizations", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--device", default=None)
     return parser.parse_args()
@@ -166,6 +168,7 @@ def main() -> None:
     out_labels = ensure_dir(output_root / "labels")
     out_vis = ensure_dir(output_root / "visualizations")
     engine = YOLOv8Engine(model_path=args.model, imgsz=args.imgsz, conf=args.conf, device=args.device, extract_features=False)
+    set_seed(args.seed)
 
     image_paths = list(iter_files(image_root, IMAGE_EXTENSIONS))
     if args.max_images is not None:
@@ -231,6 +234,7 @@ def main() -> None:
         "attack_success_rate": asr,
         "epsilon": args.eps,
         "gradient_backend": args.gradient_backend,
+        "seed": args.seed,
     }
     with (output_root / "per_image_metrics.csv").open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=list(rows[0].keys()) if rows else ["image"])

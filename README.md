@@ -29,6 +29,8 @@ docs/                     Quick start, methodology, and reproducibility notes
 outputs/figures/          Selected generated visualizations
 outputs/results_50_complete/
                           Selected CSV and JSON experiment summaries
+outputs/results_50_complete_v2/
+                          Frozen-baseline and repeated-split summaries
 scripts/attacks/          Attack generation and patch optimization
 scripts/benchmark/        Robustness, TCVM, ablation, calibration, and profiling
 scripts/dataset/          Dataset conversion and video-sequence preparation
@@ -178,11 +180,11 @@ Prepare 30 video-disjoint clips with three-frame annotated occlusion windows:
 
 ```powershell
 python scripts/dataset/prepare_public_helmet_multiclip.py `
-  --output-root outputs/tcvm_analysis/public_helmet_multiclip30_occlusion `
-  --split test `
+  --output-root outputs/tcvm_analysis/public_helmet_multiclip30_crossattack `
+  --split-name test `
   --num-clips 30 `
   --frames-per-clip 24 `
-  --attack-type occlusion `
+  --attack-types occlusion reflective sticker patch motion_blur `
   --attack-offset 4 `
   --attack-length 3 `
   --class-id 3 `
@@ -193,13 +195,25 @@ Run the detector and a threshold grid, then select the operating point using ten
 
 ```powershell
 python scripts/benchmark/benchmark_sequence_detector.py `
-  --sequence-root outputs/tcvm_analysis/public_helmet_multiclip30_occlusion/occlusion `
+  --sequence-root outputs/tcvm_analysis/public_helmet_multiclip30_crossattack/occlusion `
   --model yolov8n.pt `
-  --output-dir outputs/tcvm_analysis/public_helmet_multiclip30_occlusion/occlusion/yolo_baseline `
+  --output-dir outputs/tcvm_analysis/public_helmet_multiclip30_crossattack/occlusion/yolo_baseline `
   --classes 3 --device 0 --conf 0.15
 
+$thresholds = 0.35, 0.40, 0.45, 0.50, 0.55, 0.60, 0.65, 0.70
+foreach ($threshold in $thresholds) {
+  python scripts/benchmark/benchmark_tcvm.py `
+    --sequence-root outputs/tcvm_analysis/public_helmet_multiclip30_crossattack/occlusion `
+    --model yolov8n.pt `
+    --output-dir "outputs/tcvm_analysis/public_helmet_multiclip30_crossattack/occlusion/tcvm_calibration_grid/thr_$threshold" `
+    --classes 3 --device 0 --conf 0.15 `
+    --anomaly-threshold $threshold `
+    --frame-labels outputs/tcvm_analysis/public_helmet_multiclip30_crossattack/occlusion/frame_labels.csv `
+    --flow-scale 0.25
+}
+
 python scripts/benchmark/calibrate_tcvm_threshold.py `
-  --run-root outputs/tcvm_analysis/public_helmet_multiclip30_occlusion/occlusion/tcvm_calibration_grid `
+  --run-root outputs/tcvm_analysis/public_helmet_multiclip30_crossattack/occlusion/tcvm_calibration_grid `
   --thresholds 0.35 0.40 0.45 0.50 0.55 0.60 0.65 0.70 `
   --calibration-clip-count 10 `
   --seed 2026 `
@@ -207,6 +221,35 @@ python scripts/benchmark/calibrate_tcvm_threshold.py `
   --min-calibration-recall 0.70 `
   --output-csv outputs/results/tcvm_calibration.csv `
   --output-json outputs/results/tcvm_calibration.json
+```
+
+Repeat the clip-disjoint calibration across fixed resplits:
+
+```powershell
+python scripts/benchmark/repeat_split_sensitivity.py `
+  --run-root outputs/tcvm_analysis/public_helmet_multiclip30_crossattack/occlusion/tcvm_calibration_grid `
+  --thresholds 0.35 0.40 0.45 0.50 0.55 0.60 0.65 0.70 `
+  --calibration-clip-count 10 `
+  --seed-start 2026 `
+  --num-seeds 20 `
+  --max-calibration-fpr 0.10 `
+  --min-calibration-recall 0.70 `
+  --output-csv outputs/results_50_complete_v2/tcvm_repeated_split_sensitivity_20.csv `
+  --output-json outputs/results_50_complete_v2/tcvm_repeated_split_sensitivity_20.json
+```
+
+After generating frozen TCVM, tracker-only, and reference-recovery frame logs, summarize all methods on the same held-out clip IDs:
+
+```powershell
+python scripts/benchmark/summarize_crossattack_temporal_baselines.py `
+  --run-root outputs/tcvm_analysis/public_helmet_multiclip30_crossattack `
+  --calibration-json outputs/results_50_complete/tcvm_calibration_protocol_public_helmet30.json `
+  --tracker-root outputs/results_50_complete_v2/crossattack_tracker_recovery `
+  --adav-root outputs/results_50_complete_v2/crossattack_adav_reference `
+  --attack-root-override detector_patch=outputs/tcvm_analysis/public_helmet_multiclip30_detectorpatch/detector_patch `
+  --output-csv outputs/results_50_complete_v2/crossattack_temporal_baselines_frozen.csv `
+  --output-json outputs/results_50_complete_v2/crossattack_temporal_baselines_frozen.json `
+  --output-tex outputs/results_50_complete_v2/crossattack_temporal_baselines_frozen.tex
 ```
 
 See `docs/quick_start.md` for a compact end-to-end command sequence.
@@ -220,6 +263,9 @@ The versioned summaries under `outputs/results_50_complete/` contain the evidenc
 - occlusion attack: 0.216 mAP@50;
 - controlled reflective probe: 0.838 to 0.944 mAP@50 with temporal recovery;
 - calibrated 30-clip HELMET benchmark: 0.887 held-out anomaly F1 and 0.021 FPR;
+- 20 clip-disjoint resplits: median anomaly F1 0.889 and median FPR 0.020;
+- frozen occlusion comparison: TCVM-Net 0.887/0.021 F1/FPR versus reference recovery 0.870/0.012;
+- frozen reflective comparison: TCVM-Net 0.887/0.021 F1/FPR versus reference recovery 0.839/0.012;
 - quarter-flow 30-clip run: 14.10 FPS;
 - detector-specific patch: persistent patches remain a TCVM failure mode.
 

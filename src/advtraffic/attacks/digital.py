@@ -7,6 +7,7 @@ from typing import Iterable
 import cv2
 import numpy as np
 import torch
+import torch.nn.functional as F
 
 
 def normalize_torch_device(device: str | int | torch.device | None = None) -> torch.device:
@@ -39,21 +40,30 @@ def refresh_detection_head_tensors(model: torch.nn.Module) -> None:
                 setattr(module, name, value.detach().clone())
 
 
-def _bgr_to_tensor(image: np.ndarray, size: int | tuple[int, int], device: str | torch.device) -> torch.Tensor:
-    if isinstance(size, int):
-        resized = cv2.resize(image, (size, size), interpolation=cv2.INTER_LINEAR)
-    else:
-        resized = cv2.resize(image, size, interpolation=cv2.INTER_LINEAR)
-    rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
+def _bgr_to_tensor(image: np.ndarray, device: str | torch.device) -> torch.Tensor:
+    """Convert BGR uint8 input without changing its native pixel grid."""
+
+    rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
     tensor = torch.from_numpy(rgb).float().permute(2, 0, 1).unsqueeze(0) / 255.0
     return tensor.to(device)
 
 
-def _tensor_to_bgr(tensor: torch.Tensor, original_shape: tuple[int, int]) -> np.ndarray:
+def _resize_for_model(tensor: torch.Tensor, size: int | tuple[int, int]) -> torch.Tensor:
+    """Differentiably map native-resolution pixels to the detector input size."""
+
+    if isinstance(size, int):
+        target_hw = (size, size)
+    else:
+        target_hw = (size[1], size[0])
+    if tensor.shape[-2:] == target_hw:
+        return tensor
+    return F.interpolate(tensor, size=target_hw, mode="bilinear", align_corners=False)
+
+
+def _tensor_to_bgr(tensor: torch.Tensor) -> np.ndarray:
     tensor = tensor.detach().clamp(0, 1).squeeze(0).permute(1, 2, 0).cpu().numpy()
     rgb = (tensor * 255.0).round().astype(np.uint8)
-    bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
-    return cv2.resize(bgr, (original_shape[1], original_shape[0]), interpolation=cv2.INTER_LINEAR)
+    return cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
 
 
 def detector_confidence_loss(preds, target_classes: Iterable[int] | None = None) -> torch.Tensor:
@@ -72,7 +82,7 @@ def detector_confidence_loss(preds, target_classes: Iterable[int] | None = None)
     if preds.ndim != 3:
         raise ValueError(f"Unsupported YOLO prediction shape: {tuple(preds.shape)}")
 
-    if preds.shape[1] >= preds.shape[2]:
+    if preds.shape[1] < preds.shape[2]:
         class_scores = preds[:, 4:, :]
     else:
         class_scores = preds[:, :, 4:].transpose(1, 2)
@@ -80,7 +90,17 @@ def detector_confidence_loss(preds, target_classes: Iterable[int] | None = None)
     if target_classes is not None:
         target_classes = list(target_classes)
         class_scores = class_scores[:, target_classes, :]
-    return class_scores.sigmoid().amax(dim=1).amax(dim=1).mean()
+    # Per-anchor best-class confidence, then suppress the top-k confident anchors
+    # (the actual/near detections) rather than only the single global maximum.
+    # Minimizing only the max anchor lets the next-highest anchor become the
+    # detection, so the attack barely changes mAP; top-k suppression pushes the
+    # whole confident field down and is a proper confidence-hiding objective.
+    # Ultralytics Detect returns decoded class probabilities in eval mode.
+    # Applying sigmoid again compresses strong detections and weakens gradients.
+    scores = class_scores.amax(dim=1)  # [B, N]
+    k = max(1, int(round(0.01 * scores.shape[-1])))
+    topk_scores = scores.topk(k, dim=-1).values  # [B, k]
+    return topk_scores.mean()
 
 
 def fgsm_attack(
@@ -97,13 +117,13 @@ def fgsm_attack(
     device = normalize_torch_device(device)
     model = model.to(device).eval()
     refresh_detection_head_tensors(model)
-    x = _bgr_to_tensor(image, image_size, device).requires_grad_(True)
-    preds = model(x)
+    x = _bgr_to_tensor(image, device).requires_grad_(True)
+    preds = model(_resize_for_model(x, image_size))
     loss = detector_confidence_loss(preds, target_classes)
     signed_grad = torch.autograd.grad(loss, x, retain_graph=False, create_graph=False)[0].sign()
     direction = -1.0 if minimize_confidence else 1.0
     adv = (x + direction * eps * signed_grad).clamp(0.0, 1.0)
-    return _tensor_to_bgr(adv, image.shape[:2])
+    return _tensor_to_bgr(adv)
 
 
 def pgd_attack(
@@ -123,7 +143,7 @@ def pgd_attack(
     device = normalize_torch_device(device)
     model = model.to(device).eval()
     refresh_detection_head_tensors(model)
-    x0 = _bgr_to_tensor(image, image_size, device)
+    x0 = _bgr_to_tensor(image, device)
     if random_start:
         x_adv = (x0 + torch.empty_like(x0).uniform_(-eps, eps)).clamp(0.0, 1.0)
     else:
@@ -133,9 +153,9 @@ def pgd_attack(
     for _ in range(steps):
         x_adv = x_adv.detach().requires_grad_(True)
         refresh_detection_head_tensors(model)
-        loss = detector_confidence_loss(model(x_adv), target_classes)
+        loss = detector_confidence_loss(model(_resize_for_model(x_adv, image_size)), target_classes)
         grad = torch.autograd.grad(loss, x_adv, retain_graph=False, create_graph=False)[0].sign()
         x_adv = x_adv + direction * alpha * grad
         x_adv = torch.max(torch.min(x_adv, x0 + eps), x0 - eps).clamp(0.0, 1.0)
 
-    return _tensor_to_bgr(x_adv, image.shape[:2])
+    return _tensor_to_bgr(x_adv)

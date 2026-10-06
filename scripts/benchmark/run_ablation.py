@@ -80,6 +80,10 @@ def load_frame_metadata(path: str | None, default_label: int) -> dict[int, dict]
         item = {"adversarial_label": int(getattr(row, label_col))}
         if "clip_id" in df.columns:
             item["clip_id"] = int(getattr(row, "clip_id"))
+        if "clip" in df.columns:
+            item["clip"] = str(getattr(row, "clip"))
+        if "local_frame" in df.columns:
+            item["local_frame"] = int(getattr(row, "local_frame"))
         metadata[frame_id] = item
     return metadata
 
@@ -109,6 +113,7 @@ def evaluate_variant(args: argparse.Namespace, variant: str, params: dict) -> di
     anomaly = BinaryMetrics(threshold=cfg.anomaly_threshold)
     predictions = []
     targets = []
+    frame_rows = []
     frame_metadata = load_frame_metadata(args.frame_labels, args.adversarial_label)
     previous_clip_id = None
 
@@ -135,9 +140,27 @@ def evaluate_variant(args: argparse.Namespace, variant: str, params: dict) -> di
         predictions.append(detections_to_prediction(robust))
         targets.append(labels_to_target(root / "labels" / f"{image_path.stem}.txt", width, height))
         scored_events = pipeline.robust_layer.last_scored + pipeline.robust_layer.last_missing_events
-        anomaly.update(int(meta.get("adversarial_label", args.adversarial_label)), max((det.anomaly_score for det in scored_events), default=0.0))
+        max_anomaly_score = max((det.anomaly_score for det in scored_events), default=0.0)
+        adversarial_label = int(meta.get("adversarial_label", args.adversarial_label))
+        anomaly.update(adversarial_label, max_anomaly_score)
+        frame_rows.append(
+            {
+                "frame_id": frame_id,
+                "clip_id": clip_id,
+                "clip": meta.get("clip"),
+                "local_frame": meta.get("local_frame"),
+                "image": str(image_path),
+                "adversarial_label": adversarial_label,
+                "detections": len(detections),
+                "robust_detections": len(robust),
+                "max_anomaly_score": max_anomaly_score,
+                "missing_events": len(pipeline.robust_layer.last_missing_events),
+                "recovered": sum(det.is_recovered for det in robust),
+            }
+        )
 
     map_metrics = compute_map(predictions, targets) if predictions else {"map50": 0.0, "map50_95": 0.0, "mar100": 0.0}
+    pd.DataFrame(frame_rows).to_csv(Path(args.output_dir) / f"{variant}_frame_metrics.csv", index=False)
     return {
         "variant": variant,
         "frames": len(image_paths),

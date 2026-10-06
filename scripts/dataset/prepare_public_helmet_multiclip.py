@@ -2,8 +2,8 @@
 
 This script uses the public Kaggle HELMET split file and per-clip CSV
 annotations. It selects several held-out clips, extracts a short window from
-each, applies a synthetic short-gap occlusion to annotated motorcycle boxes,
-and writes a combined YOLO-style sequence with clip-boundary metadata.
+each, applies one or more synthetic short-gap attacks, and writes combined
+YOLO-style sequences with clip-boundary metadata.
 """
 
 from __future__ import annotations
@@ -19,7 +19,15 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-from advtraffic.attacks.physical import apply_occlusion_attack, apply_reflective_pattern_attack
+from advtraffic.attacks.physical import (
+    apply_motion_blur,
+    apply_named_physical_attack,
+    apply_occlusion_attack,
+    apply_reflective_pattern_attack,
+)
+
+
+ATTACK_CHOICES = ["occlusion", "reflective", "sticker", "patch", "detector_patch", "motion_blur"]
 
 
 def parse_args() -> argparse.Namespace:
@@ -34,12 +42,24 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--attack-offset", type=int, default=4, help="0-based offset within each selected window.")
     parser.add_argument("--attack-length", type=int, default=3)
     parser.add_argument("--class-id", type=int, default=3, help="YOLO class id; COCO motorcycle is 3.")
-    parser.add_argument("--attack-type", default="occlusion", choices=["occlusion", "reflective"])
+    parser.add_argument("--attack-type", default="occlusion", choices=ATTACK_CHOICES)
+    parser.add_argument(
+        "--attack-types",
+        nargs="+",
+        choices=ATTACK_CHOICES,
+        default=None,
+        help="Generate several attack sequences over identical clip windows.",
+    )
     parser.add_argument("--max-attack-boxes", type=int, default=64)
     parser.add_argument("--occlusion-ratio", type=float, default=1.0)
     parser.add_argument("--reflective-intensity", type=float, default=0.82)
     parser.add_argument("--reflective-scale", type=float, default=0.92)
     parser.add_argument("--stripe-width", type=int, default=9)
+    parser.add_argument("--sticker-scale", type=float, default=0.38)
+    parser.add_argument("--patch-scale", type=float, default=0.45)
+    parser.add_argument("--patch-path", default=None)
+    parser.add_argument("--motion-blur-kernel", type=int, default=17)
+    parser.add_argument("--motion-blur-angle", type=float, default=0.0)
     parser.add_argument("--no-download", action="store_true")
     return parser.parse_args()
 
@@ -132,19 +152,50 @@ def row_to_xyxy(row: tuple[str, str, float, float, float, float]) -> tuple[float
     return (x1, y1, x1 + w, y1 + h)
 
 
-def apply_attack(image: np.ndarray, boxes: list[tuple[float, float, float, float]], args: argparse.Namespace) -> np.ndarray:
+def apply_attack(
+    image: np.ndarray,
+    boxes: list[tuple[float, float, float, float]],
+    args: argparse.Namespace,
+    attack_type: str | None = None,
+) -> np.ndarray:
+    attack_type = attack_type or args.attack_type
+    if attack_type == "motion_blur":
+        return apply_motion_blur(
+            image,
+            kernel_size=args.motion_blur_kernel,
+            angle=args.motion_blur_angle,
+        )
+
     attacked = image.copy()
     for box in sorted(boxes, key=lambda b: (b[2] - b[0]) * (b[3] - b[1]), reverse=True)[: args.max_attack_boxes]:
-        if args.attack_type == "occlusion":
-            attacked = apply_occlusion_attack(attacked, np.asarray(box), occlusion_ratio=args.occlusion_ratio)
-        else:
+        box_array = np.asarray(box)
+        if attack_type == "occlusion":
+            attacked = apply_occlusion_attack(attacked, box_array, occlusion_ratio=args.occlusion_ratio)
+        elif attack_type == "reflective":
             attacked = apply_reflective_pattern_attack(
                 attacked,
-                np.asarray(box),
+                box_array,
                 intensity=args.reflective_intensity,
                 stripe_width=args.stripe_width,
                 scale=args.reflective_scale,
             )
+        elif attack_type == "sticker":
+            attacked = apply_named_physical_attack(
+                attacked,
+                box_array,
+                "sticker",
+                scale=args.sticker_scale,
+            )
+        elif attack_type in {"patch", "detector_patch"}:
+            attacked = apply_named_physical_attack(
+                attacked,
+                box_array,
+                "patch",
+                scale=args.patch_scale,
+                patch_path=args.patch_path,
+            )
+        else:
+            raise ValueError(f"Unsupported attack type: {attack_type}")
     return attacked
 
 
@@ -153,8 +204,9 @@ def main() -> None:
     source_root = Path(args.source_root)
     output_root = Path(args.output_root)
     clean_root = output_root / "clean"
-    attack_root = output_root / args.attack_type
-    for root in (clean_root, attack_root):
+    attack_types = list(dict.fromkeys(args.attack_types or [args.attack_type]))
+    attack_roots = {attack_type: output_root / attack_type for attack_type in attack_types}
+    for root in (clean_root, *attack_roots.values()):
         (root / "images").mkdir(parents=True, exist_ok=True)
         (root / "labels").mkdir(parents=True, exist_ok=True)
 
@@ -218,11 +270,11 @@ def main() -> None:
             write_yolo_labels(rows, clean_root / "labels" / label_name, args.class_id, width, height)
 
             adversarial_label = int(attack_start <= source_frame <= attack_end)
-            attacked = image.copy()
-            if adversarial_label:
-                attacked = apply_attack(attacked, [row_to_xyxy(row) for row in rows], args)
-            cv2.imwrite(str(attack_root / "images" / out_name), attacked)
-            write_yolo_labels(rows, attack_root / "labels" / label_name, args.class_id, width, height)
+            boxes = [row_to_xyxy(row) for row in rows]
+            for attack_type, attack_root in attack_roots.items():
+                attacked = apply_attack(image, boxes, args, attack_type) if adversarial_label else image
+                cv2.imwrite(str(attack_root / "images" / out_name), attacked)
+                write_yolo_labels(rows, attack_root / "labels" / label_name, args.class_id, width, height)
             frame_rows.append(
                 {
                     "frame_id": global_frame,
@@ -237,7 +289,8 @@ def main() -> None:
             global_frame += 1
 
     frame_df = pd.DataFrame(frame_rows)
-    frame_df.to_csv(attack_root / "frame_labels.csv", index=False)
+    for attack_root in attack_roots.values():
+        frame_df.to_csv(attack_root / "frame_labels.csv", index=False)
     pd.DataFrame(clip_rows).to_csv(output_root / "clip_windows.csv", index=False)
     metadata = {
         "dataset": args.dataset,
@@ -250,7 +303,8 @@ def main() -> None:
         "total_objects": int(frame_df["objects"].sum()),
         "class_id": args.class_id,
         "class_semantics": "COCO motorcycle / HELMET motorcycle-box pilot target",
-        "attack": f"{args.attack_type} perturbation applied to annotated motorcycle boxes",
+        "attacks": attack_types,
+        "attack": "short-gap perturbations applied over identical annotated windows",
         "attack_parameters": {
             "attack_offset": args.attack_offset,
             "attack_length": args.attack_length,
@@ -259,6 +313,10 @@ def main() -> None:
             "reflective_intensity": args.reflective_intensity,
             "reflective_scale": args.reflective_scale,
             "stripe_width": args.stripe_width,
+            "sticker_scale": args.sticker_scale,
+            "patch_scale": args.patch_scale,
+            "motion_blur_kernel": args.motion_blur_kernel,
+            "motion_blur_angle": args.motion_blur_angle,
         },
         "note": "Uses public real traffic frames and human annotations; perturbation itself is synthetic.",
     }

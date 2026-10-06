@@ -3,15 +3,13 @@
 from __future__ import annotations
 
 import argparse
-import json
 from pathlib import Path
-import tempfile
 
 import pandas as pd
 import yaml
 from ultralytics import YOLO
 
-from advtraffic.utils.io import read_json, write_json
+from advtraffic.utils.io import IMAGE_EXTENSIONS, read_json, write_json
 
 
 def parse_args() -> argparse.Namespace:
@@ -26,6 +24,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--batch", type=int, default=16)
     parser.add_argument("--device", default=None)
     parser.add_argument("--method-name", default="YOLOv8", help="Method label written to the result CSV.")
+    parser.add_argument(
+        "--match-clean-subset",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Evaluate clean mAP on the exact filenames present in the attack splits.",
+    )
     return parser.parse_args()
 
 
@@ -39,6 +43,83 @@ def make_eval_yaml(root: Path, names, split_name: str) -> Path:
     path = root / f"{split_name}_eval.yaml"
     path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
     return path
+
+
+def _resolve_clean_split(clean_yaml: str | Path, split: str) -> tuple[dict, list[Path]]:
+    yaml_path = Path(clean_yaml).resolve()
+    config = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
+    dataset_root = Path(config.get("path", yaml_path.parent))
+    if not dataset_root.is_absolute():
+        dataset_root = (yaml_path.parent / dataset_root).resolve()
+
+    entries = config.get(split)
+    if entries is None:
+        raise KeyError(f"Split '{split}' is missing from {yaml_path}")
+    if not isinstance(entries, list):
+        entries = [entries]
+
+    images: list[Path] = []
+    for entry in entries:
+        source = Path(entry)
+        if not source.is_absolute():
+            source = dataset_root / source
+        if source.is_dir():
+            images.extend(
+                path.absolute()
+                for path in sorted(source.rglob("*"))
+                if path.is_file() and path.suffix.lower() in IMAGE_EXTENSIONS
+            )
+        elif source.suffix.lower() == ".txt":
+            for line in source.read_text(encoding="utf-8").splitlines():
+                image_path = Path(line.strip())
+                if not image_path.is_absolute():
+                    image_path = source.parent / image_path
+                images.append(image_path.absolute())
+        elif source.suffix.lower() in IMAGE_EXTENSIONS:
+            images.append(source.absolute())
+    return config, images
+
+
+def make_matched_clean_yaml(
+    clean_yaml: str | Path,
+    attacks_root: str | Path,
+    attacks: list[str],
+    split: str,
+    output_dir: Path,
+) -> Path:
+    reference_names: set[str] | None = None
+    for attack in attacks:
+        image_root = Path(attacks_root) / attack / split / "images"
+        if not image_root.exists():
+            continue
+        names = {
+            path.name
+            for path in image_root.iterdir()
+            if path.is_file() and path.suffix.lower() in IMAGE_EXTENSIONS
+        }
+        if reference_names is None:
+            reference_names = names
+        elif names != reference_names:
+            raise ValueError(f"Attack split '{attack}' does not contain the same paired image set.")
+
+    if not reference_names:
+        raise FileNotFoundError("No attack images were found to define the matched clean subset.")
+
+    config, clean_images = _resolve_clean_split(clean_yaml, split)
+    clean_by_name = {path.name: path for path in clean_images}
+    if len(clean_by_name) != len(clean_images):
+        raise ValueError("Clean split contains duplicate image basenames; paired matching is ambiguous.")
+    missing = sorted(reference_names - clean_by_name.keys())
+    if missing:
+        raise FileNotFoundError(f"Clean split is missing {len(missing)} attacked images, including {missing[0]}.")
+
+    list_path = output_dir / "clean_matched_images.txt"
+    selected = [clean_by_name[name] for name in sorted(reference_names)]
+    list_path.write_text("\n".join(path.as_posix() for path in selected) + "\n", encoding="utf-8")
+    config[split] = str(list_path.resolve())
+    matched_yaml = output_dir / "clean_matched_eval.yaml"
+    matched_yaml.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+    return matched_yaml
 
 
 def val_model(
@@ -78,7 +159,16 @@ def main() -> None:
     names = load_names(args.clean_data)
     rows = []
 
-    clean = val_model(model, args.clean_data, args.imgsz, args.batch, args.device, output_dir, "clean_yolo", args.split)
+    clean_data = args.clean_data
+    if args.match_clean_subset:
+        clean_data = make_matched_clean_yaml(
+            args.clean_data,
+            args.attacks_root,
+            args.attacks,
+            args.split,
+            output_dir,
+        )
+    clean = val_model(model, clean_data, args.imgsz, args.batch, args.device, output_dir, "clean_yolo", args.split)
     rows.append({"attack": "clean", "method": args.method_name, "attack_success_rate": 0.0, "robust_accuracy": 1.0, **clean})
 
     for attack in args.attacks:

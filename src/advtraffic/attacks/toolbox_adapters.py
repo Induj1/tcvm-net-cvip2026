@@ -39,13 +39,19 @@ def batch_detector_confidence(preds, target_classes: list[int] | None = None) ->
         preds = preds[0]
     if preds.ndim != 3:
         raise ValueError(f"Unsupported YOLO prediction shape: {tuple(preds.shape)}")
-    if preds.shape[1] >= preds.shape[2]:
+    if preds.shape[1] < preds.shape[2]:
         class_scores = preds[:, 4:, :]
     else:
         class_scores = preds[:, :, 4:].transpose(1, 2)
     if target_classes is not None:
         class_scores = class_scores[:, target_classes, :]
-    return class_scores.sigmoid().amax(dim=1).amax(dim=1)
+    # Suppress the top-k confident anchors (near detections) per image, not just
+    # the single global maximum: minimizing only the max anchor lets another
+    # anchor take over and leaves mAP essentially unchanged.
+    # The decoded Ultralytics eval output already contains probabilities.
+    scores = class_scores.amax(dim=1)  # [B, N]
+    k = max(1, int(round(0.01 * scores.shape[-1])))
+    return scores.topk(k, dim=-1).values.mean(dim=-1)  # [B]
 
 
 class DetectorConfidenceProxy(torch.nn.Module):

@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import re
 import shutil
 from pathlib import Path
 
@@ -40,6 +41,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--lr", type=float, default=0.05)
     parser.add_argument("--batch", type=int, default=12)
     parser.add_argument("--max-opt-images", type=int, default=24)
+    parser.add_argument(
+        "--optimization-clips",
+        nargs="*",
+        type=int,
+        default=None,
+        help="Optional clip IDs used for patch optimization; evaluation still covers all input images.",
+    )
     parser.add_argument("--max-eval-images", type=int, default=None)
     parser.add_argument("--iou-threshold", type=float, default=0.5)
     parser.add_argument("--scale", type=float, default=0.45)
@@ -100,6 +108,40 @@ def collect_optimization_batch(
     return torch.stack(images, dim=0), torch.from_numpy(np.stack(boxes, axis=0).astype(np.float32))
 
 
+def select_clip_disjoint_optimization_paths(
+    image_paths: list[Path],
+    clip_ids: list[int] | None,
+    limit: int,
+) -> list[Path]:
+    if not clip_ids:
+        return image_paths
+    grouped: dict[int, list[Path]] = {clip_id: [] for clip_id in sorted(set(clip_ids))}
+    for image_path in image_paths:
+        match = re.match(r"clip(\d+)_", image_path.stem)
+        if match:
+            clip_id = int(match.group(1))
+            if clip_id in grouped:
+                grouped[clip_id].append(image_path)
+    missing = [clip_id for clip_id, paths in grouped.items() if not paths]
+    if missing:
+        raise ValueError(f"No optimization images found for clip IDs: {missing}")
+    selected = []
+    offset = 0
+    while len(selected) < limit:
+        added = False
+        for clip_id in sorted(grouped):
+            paths = grouped[clip_id]
+            if offset < len(paths):
+                selected.append(paths[offset])
+                added = True
+                if len(selected) >= limit:
+                    break
+        if not added:
+            break
+        offset += 1
+    return selected
+
+
 def main() -> None:
     args = parse_args()
     dataset_root = Path(args.dataset_root)
@@ -115,12 +157,18 @@ def main() -> None:
     if args.max_eval_images is not None:
         image_paths = image_paths[: args.max_eval_images]
 
-    opt_images, opt_boxes = collect_optimization_batch(
+    optimization_limit = min(args.max_opt_images, args.batch)
+    optimization_paths = select_clip_disjoint_optimization_paths(
         image_paths,
+        args.optimization_clips,
+        optimization_limit,
+    )
+    opt_images, opt_boxes = collect_optimization_batch(
+        optimization_paths,
         label_root,
         target_classes,
         args.imgsz,
-        min(args.max_opt_images, args.batch),
+        optimization_limit,
     )
 
     engine = YOLOv8Engine(model_path=args.model, imgsz=args.imgsz, conf=args.conf, device=args.device, classes=args.classes, extract_features=False)
@@ -188,6 +236,7 @@ def main() -> None:
         "dataset_root": str(dataset_root),
         "images": len(image_paths),
         "optimization_images": int(opt_images.shape[0]),
+        "optimization_clips": args.optimization_clips,
         "target_classes": args.classes,
         "target_objects": target_total,
         "clean_detected_targets": clean_detected_total,
