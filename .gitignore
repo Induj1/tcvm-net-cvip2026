@@ -26,6 +26,10 @@ tools/graphviz_renderer/node_modules/
 *.tflite
 *.mlpackage
 
+# Preserve the three validated release checkpoints.
+!weights/
+!weights/*.pt
+
 # Keep selected top-level metrics and visualizations only.
 outputs/*
 !outputs/figures/

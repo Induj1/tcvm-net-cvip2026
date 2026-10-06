@@ -2,7 +2,7 @@
 
 Temporal Consistency Verification for robust traffic-surveillance object detection under physical-style adversarial attacks.
 
-This repository contains the code, experiment configurations, tests, selected metrics, and visualization artifacts for TCVM-Net. The implementation wraps a YOLOv8 detector and ByteTrack-style association with a causal temporal verifier that combines confidence stability, motion continuity, appearance similarity, detector-count collapse, and short-gap recovery.
+This repository contains the code, experiment configurations, validated checkpoints, tests, selected metrics, and visualization artifacts for TCVM-Net. The implementation wraps a YOLOv8 detector and ByteTrack-style association with a causal temporal verifier that combines confidence stability, motion continuity, appearance similarity, detector-count collapse, and short-gap recovery.
 
 The manuscript and submission files are intentionally not included.
 
@@ -53,10 +53,29 @@ scripts/visualization/    Plot and qualitative-figure generation
 src/advtraffic/           Reusable Python package
 tests/                    Unit tests for geometry and temporal verification
 tools/                    Architecture rendering and explanatory-PDF utilities
+weights/                  Validated YOLOv8n, YOLOv8s, and AdvAug checkpoints
 ```
 
-Datasets, checkpoints, raw videos, raw detections, complete training runs, and manuscript files are excluded from version control.
+Datasets, raw videos, raw detections, complete training runs, and manuscript files are excluded from version control. The three checkpoints used for the principal comparisons are included under `weights/`; their provenance and SHA-256 checksums are recorded in [`docs/ARTIFACTS.md`](docs/ARTIFACTS.md).
 The paper-table and publication-validation utilities are included, but require a local manuscript checkout when those optional commands are used.
+
+## Release Checkpoints
+
+| Model | File | Purpose |
+|---|---|---|
+| YOLOv8n | `weights/helmet_yolov8n_best.pt` | Primary clean detector |
+| YOLOv8s | `weights/helmet_yolov8s_best.pt` | Larger clean baseline |
+| YOLOv8n AdvAug | `weights/helmet_yolov8n_advtrain_best.pt` | Adversarial-augmentation comparison |
+
+Use the release checkpoint directly in any command that accepts `--model`, for example:
+
+```powershell
+python scripts/benchmark/benchmark_sequence_detector.py `
+  --sequence-root <prepared-sequence-root> `
+  --model weights/helmet_yolov8n_best.pt `
+  --output-dir outputs/tcvm_analysis/reproduction/yolo_baseline `
+  --classes 3 --device 0 --conf 0.15
+```
 
 ## Installation
 
