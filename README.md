@@ -21,6 +21,20 @@ The repository supports:
 
 TCVM-Net is a practical verification layer, not a certified defense. Persistent temporally smooth adaptive patches remain a known failure mode.
 
+## Visual Overview
+
+![TCVM-Net architecture](outputs/figures/architecture_graphviz.png)
+
+| Temporal anomaly response | Physical-style attack examples |
+|---|---|
+| ![Temporal confidence and anomaly trajectory](outputs/figures/temporal_confidence_reflective_probe.png) | ![Attack visualization grid](outputs/figures/attack_gallery.png) |
+
+| Robustness comparison | Component ablation |
+|---|---|
+| ![Robustness comparison](outputs/figures/robustness_comparison.png) | ![Ablation study](outputs/figures/ablation_chart.png) |
+
+For a short demonstration sequence and speaker notes, see [`docs/presentation_walkthrough.md`](docs/presentation_walkthrough.md).
+
 ## Repository Layout
 
 ```text
@@ -38,9 +52,11 @@ scripts/train/            Clean and adversarial-augmentation training
 scripts/visualization/    Plot and qualitative-figure generation
 src/advtraffic/           Reusable Python package
 tests/                    Unit tests for geometry and temporal verification
+tools/                    Architecture rendering and explanatory-PDF utilities
 ```
 
 Datasets, checkpoints, raw videos, raw detections, complete training runs, and manuscript files are excluded from version control.
+The paper-table and publication-validation utilities are included, but require a local manuscript checkout when those optional commands are used.
 
 ## Installation
 

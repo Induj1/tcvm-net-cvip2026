@@ -36,6 +36,8 @@ outputs/figures/*
 outputs/results_50_complete/*
 !outputs/results_50_complete/*.csv
 !outputs/results_50_complete/*.json
+!outputs/results_50_complete/*.yaml
+!outputs/results_50_complete/*.txt
 !outputs/results_50_complete_v2/
 outputs/results_50_complete_v2/*
 !outputs/results_50_complete_v2/*.csv
